@@ -1,2 +1,2 @@
 # epoxy
-CGI based proxy for rewriting entires sites on the fly.
+CGI based proxy for rewriting entire sites on the fly.
