@@ -1,4 +1,8 @@
 #!/usr/bin/perl
+
+#
+# Licensed under the GNU GPL version 2.0
+#
 use strict;
 use warnings;
 
