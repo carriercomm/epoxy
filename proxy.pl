@@ -1,8 +1,4 @@
 #!/usr/bin/perl
-
-#
-# Licensed under the GNU GPL version 2.0
-#
 use strict;
 use warnings;
 
@@ -61,6 +57,7 @@ foreach my $cookie (@cookies){
 $ua->cookie_jar( $cookiejar);
 
 
+
 my $method = $ENV{'REQUEST_METHOD'};
 my $req;
 my $res;
@@ -68,7 +65,7 @@ if ($method eq 'GET'){
 	$req = HTTP::Request->new(
 # we've already fooled the script with the dns spoofing above. We can use the hostname here.
 
-		GET => "http://$hostname/$url",
+		GET => "http://$hostname$url",
 		[Host => $hostname],
 		) || die $@;
 }
@@ -80,7 +77,7 @@ if ($method eq 'POST'){
 		$content.="$key=$param&";
 	}
 	chop $content;
-#	$res = $ua->post("http://$hostname/$url",$q->{param});
+#	$res = $ua->post("http://$hostname$url",$q->{param});
 	$req = HTTP::Request->new(
 		"POST",
 		"http://$hostname/$url",
@@ -97,15 +94,7 @@ if ($referrer= $ENV{'HTTP_REFERER'}){
 	$req->referrer($referrer);
 }
 
-LogPrint Dumper($req);
 $res = $ua->request($req) || die $@;
-
-
-
-
-
-
-
 
 my $content_type = $res->{'_headers'}->{'content-type'};
 my $content = $res->{'_content'} ;
