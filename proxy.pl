@@ -3,12 +3,28 @@ use strict;
 use warnings;
 
 use CGI;
+use CGI::Upload;
 use LWP::UserAgent::DNS::Hosts;
 use Data::Dumper;
 use LWP;
 use HTTP::Cookies;
 use URI::Escape;
+use IO::Socket::INET;
 
+my $http_host = $ENV{HTTP_HOST};
+
+$http_host =~ m/(.*)\.ip\.(.*)\.proxy\.liquidweb\.services/;
+my $hostname = $1;
+my $ip = $2;
+my $url = $ENV{REQUEST_URI};
+
+# trick LWP into thinking that dns is setup the way we want it to be.
+# this overrides dns for the hostname. otherwise LWP will connect to the
+# "real" server.
+LWP::UserAgent::DNS::Hosts->register_host( $hostname => $ip);
+LWP::UserAgent::DNS::Hosts->enable_override;
+
+my $input_content_type = $ENV{'CONTENT_TYPE'};
 
 sub LogPrint{
 	my $to_print=shift;
@@ -17,8 +33,45 @@ sub LogPrint{
 	close FILE;
 }
 
-my $q = CGI->new;
+foreach my $key (keys %ENV){
+	LogPrint "$key: $ENV{$key}\n";
+}
 
+if ($input_content_type =~ m/^multipart/){
+	$|=1;
+	my $socket = IO::Socket::INET->new(
+		PeerAddr => $ip,
+		PeerPort => 'http(80)',
+		Proto => 'tcp',
+	);
+	
+	$socket->send("$ENV{REQUEST_METHOD} $ENV{REQUEST_URI} $ENV{SERVER_PROTOCOL}\n");
+	$socket->send("Accept: $ENV{HTTP_ACCEPT}\n");
+	$socket->send("Accept-Encoding: $ENV{HTTP_ACCEPT_ENCODING}\n");
+	$socket->send("Accept-Language: $ENV{HTTP_ACCEPT_LANGUAGE}\n");
+	$socket->send("Cache-Control: $ENV{HTTP_CACHE_CONTROL}\n");
+	$socket->send("Referer: $ENV{HEEP_REFERER}\n");
+	$socket->send("Content-type: $ENV{CONTENT_TYPE}\n");
+	$socket->send("Content-Length: $ENV{CONTENT_LENGTH}\n");
+	$socket->send("Connection: close\n");
+	$socket->send("User-Agent: LW-Proxy/1.0\n");
+	foreach my $cookie (split(';' , $ENV{HTTP_COOKIES})){
+		$socket->send("Cookie: $cookie\n");
+	}
+	$socket->send ("Host: $hostname\n\n");
+	while (<>){
+		LogPrint "<" .  $_;
+		$socket->send($_);
+	}
+	while (<$socket>){
+		LogPrint ">>" .  $_;
+		print $_;
+	}
+	exit;
+	
+}
+
+my $q = CGI->new;
 
 my $cookies = $q->http('HTTP_COOKIE');
 my @cookies;
@@ -28,21 +81,6 @@ if ($cookies) {
 
 
 
-
-my $http_host = $ENV{HTTP_HOST};
-
-$http_host =~ m/(.*)\.ip\.(.*)\.proxy\.liquidweb\.services/;
-my $hostname = $1;
-my $ip = $2;
-my $url = $ENV{REQUEST_URI};
-
-
-
-# trick LWP into thinking that dns is setup the way we want it to be.
-# this overrides dns for the hostname. otherwise LWP will connect to the
-# "real" server.
-LWP::UserAgent::DNS::Hosts->register_host( $hostname => $ip);
-LWP::UserAgent::DNS::Hosts->enable_override;
 
 my $ua = LWP::UserAgent->new;
 
