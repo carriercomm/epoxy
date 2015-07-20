@@ -111,7 +111,10 @@ if ($method eq 'GET'){
 if ($method eq 'POST'){
 	my $content="";
 	foreach my $key ( keys %{$q->{param}}){
-		my $param=uri_escape($q->param($key));
+		# uri_escape has issues with excaping things with '-'
+		# in them.	
+		# \Q escapes everythign after.
+		my $param=uri_escape("\Q" . $q->param($key) . "\E");
 		$content.="$key=$param&";
 	}
 	chop $content;
