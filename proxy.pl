@@ -59,6 +59,7 @@ if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 	
 	$socket->send("Referer: $ENV{HTTP_REFERER}\n");
 	$socket->send("Content-type: $ENV{CONTENT_TYPE}\n");
+	my $content_length = $ENV{CONTENT_LENGTH};
 	$socket->send("Content-Length: $ENV{CONTENT_LENGTH}\n");
 	$socket->send("Connection: close\n");
 	$socket->send("User-Agent: LW-Proxy/1.0\n");
@@ -67,9 +68,9 @@ if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 	}
 	
 	$socket->send ("Host: $hostname\n\n");
-	while (<>){
-		s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
-		$socket->send($_);
+	while (read(STDIN,my $data,$content_length)){
+		$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+		$socket->send($data);
 	}
 	my $http_response = <$socket>;
 	while (<$socket>){
