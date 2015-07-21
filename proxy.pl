@@ -63,7 +63,6 @@ if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 	$socket->send("Connection: close\n");
 	$socket->send("User-Agent: LW-Proxy/1.0\n");
 	if ($ENV{HTTP_COOKIE}) {
-		LogPrint("Cookie: $ENV{HTTP_COOKIE}\n");
 		$socket->send("Cookie: $ENV{HTTP_COOKIE}\n");
 	}
 	
@@ -159,7 +158,6 @@ foreach my $key (keys %{$res->{'_headers'}}){
 	if (ref($header) eq 'ARRAY'){
 		foreach my $entry (@$header){
 			$entry =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
-			LogPrint("$key: " . Dumper($entry));
 			print "$key: $entry\n";
 		}
 	} else {
