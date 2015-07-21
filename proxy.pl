@@ -18,6 +18,13 @@ my $hostname = $1;
 my $ip = $2;
 my $url = $ENV{REQUEST_URI};
 
+if (!$hostname && !$ip) {
+	# Someone is probing looking for things.
+	print "Location: http://www.liquidweb.com/\n\n";
+	exit;
+}
+
+
 # trick LWP into thinking that dns is setup the way we want it to be.
 # this overrides dns for the hostname. otherwise LWP will connect to the
 # "real" server.
@@ -33,11 +40,7 @@ sub LogPrint{
 	close FILE;
 }
 
-foreach my $key (keys %ENV){
-	LogPrint "$key: $ENV{$key}\n";
-}
-
-if ($input_content_type =~ m/^multipart/){
+if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 	$|=1;
 	my $socket = IO::Socket::INET->new(
 		PeerAddr => $ip,
@@ -49,22 +52,29 @@ if ($input_content_type =~ m/^multipart/){
 	$socket->send("Accept: $ENV{HTTP_ACCEPT}\n");
 	$socket->send("Accept-Encoding: $ENV{HTTP_ACCEPT_ENCODING}\n");
 	$socket->send("Accept-Language: $ENV{HTTP_ACCEPT_LANGUAGE}\n");
-	$socket->send("Cache-Control: $ENV{HTTP_CACHE_CONTROL}\n");
-	$socket->send("Referer: $ENV{HEEP_REFERER}\n");
+	if ($ENV{HTTP_CACHE_CONTROL}) {
+		$socket->send("Cache-Control: $ENV{HTTP_CACHE_CONTROL}\n");
+
+	}
+	
+	$socket->send("Referer: $ENV{HTTP_REFERER}\n");
 	$socket->send("Content-type: $ENV{CONTENT_TYPE}\n");
 	$socket->send("Content-Length: $ENV{CONTENT_LENGTH}\n");
 	$socket->send("Connection: close\n");
 	$socket->send("User-Agent: LW-Proxy/1.0\n");
-	foreach my $cookie (split(';' , $ENV{HTTP_COOKIES})){
-		$socket->send("Cookie: $cookie\n");
+	if ($ENV{HTTP_COOKIE}) {
+		LogPrint("Cookie: $ENV{HTTP_COOKIE}\n");
+		$socket->send("Cookie: $ENV{HTTP_COOKIE}\n");
 	}
+	
 	$socket->send ("Host: $hostname\n\n");
 	while (<>){
-		LogPrint "<" .  $_;
+		s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
 		$socket->send($_);
 	}
+	my $http_response = <$socket>;
 	while (<$socket>){
-		LogPrint ">>" .  $_;
+		s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
 		print $_;
 	}
 	exit;
@@ -121,7 +131,7 @@ if ($method eq 'POST'){
 #	$res = $ua->post("http://$hostname$url",$q->{param});
 	$req = HTTP::Request->new(
 		"POST",
-		"http://$hostname/$url",
+		"http://$hostname$url",
 		[Host => $hostname],
 		$content,
 		) || die $@;
@@ -137,15 +147,19 @@ if ($referrer= $ENV{'HTTP_REFERER'}){
 
 $res = $ua->request($req) || die $@;
 
+$cookiejar->extract_cookies($res);
 my $content_type = $res->{'_headers'}->{'content-type'};
 my $content = $res->{'_content'} ;
 
 
 foreach my $key (keys %{$res->{'_headers'}}){
 	my $header = $res->{'_headers'}->{$key};
+	
+
 	if (ref($header) eq 'ARRAY'){
 		foreach my $entry (@$header){
 			$entry =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+			LogPrint("$key: " . Dumper($entry));
 			print "$key: $entry\n";
 		}
 	} else {
