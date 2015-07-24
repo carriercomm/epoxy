@@ -10,6 +10,7 @@ use LWP;
 use HTTP::Cookies;
 use URI::Escape;
 use IO::Socket::INET;
+use IO::Select;
 
 my $http_host = $ENV{HTTP_HOST};
 
@@ -40,6 +41,7 @@ sub LogPrint{
 	close FILE;
 }
 
+
 if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 	$|=1;
 	my $socket = IO::Socket::INET->new(
@@ -47,7 +49,12 @@ if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 		PeerPort => 'http(80)',
 		Proto => 'tcp',
 	);
-	
+	my $stdin_select = IO::Select->new();
+	$stdin_select->add(\*STDIN);
+	my $socket_select = IO::Select->new();
+	$socket_select->add($socket);
+	my $stdin_fh = *STDIN;
+
 	$socket->send("$ENV{REQUEST_METHOD} $ENV{REQUEST_URI} $ENV{SERVER_PROTOCOL}\n");
 	$socket->send("Accept: $ENV{HTTP_ACCEPT}\n");
 	$socket->send("Accept-Encoding: $ENV{HTTP_ACCEPT_ENCODING}\n");
@@ -56,27 +63,73 @@ if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 		$socket->send("Cache-Control: $ENV{HTTP_CACHE_CONTROL}\n");
 
 	}
-	
 	$socket->send("Referer: $ENV{HTTP_REFERER}\n");
 	$socket->send("Content-type: $ENV{CONTENT_TYPE}\n");
 	my $content_length = $ENV{CONTENT_LENGTH};
 	$socket->send("Content-Length: $ENV{CONTENT_LENGTH}\n");
-	$socket->send("Connection: close\n");
+	$socket->send("Connection: $ENV{HTTP_CONNECTION}\n");
 	$socket->send("User-Agent: LW-Proxy/1.0\n");
 	if ($ENV{HTTP_COOKIE}) {
 		$socket->send("Cookie: $ENV{HTTP_COOKIE}\n");
 	}
-	
 	$socket->send ("Host: $hostname\n\n");
-	while (read(STDIN,my $data,$content_length)){
-		$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+	$content_length = $ENV{CONTENT_LENGTH};
+
+	while (my $amount = read(STDIN,my $data,$content_length)){
+		$data =~ s/\.ip\.$ip\.proxy\.liquidweb\.services//gi;
 		$socket->send($data);
+		LogPrint "$amount $content_length\n";
 	}
+
+	
 	my $http_response = <$socket>;
-	while (<$socket>){
-		s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
-		print $_;
+	while (my $data = <$socket>  && $socket_select->can_read(1)){
+		LogPrint ("here1 $data\n");
+
+		$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+		#$data =~ s/connection: keep-alive/connection: close/gi;
+
+		binmode STDOUT;
+		print $data;
 	}
+
+
+	LogPrint ("here\n");
+	my $select = IO::Select->new();
+	$select->add(\*STDIN);
+	$select->add($socket);
+
+	# does anyone else have anything to say???
+	while (my @readable = $select->can_read(1)){
+		foreach my $read_fh (@readable) {
+				
+				
+			if ($read_fh == $socket) {
+				while (my $data = <$socket>){
+					LogPrint ("Socket\n");
+					$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+		
+					binmode STDOUT;
+					print $data;
+				}
+			} else {
+				LogPrint ("STDIN\n");
+				$content_length = $ENV{CONTENT_LENGTH};
+
+				while (my $amount = read(STDIN,my $data,$content_length)){
+					$data =~ s/\.ip\.$ip\.proxy\.liquidweb\.services//gi;
+					$socket->send($data);
+					LogPrint "$amount $content_length\n";
+				}
+
+			}
+			
+		}
+	}
+
+	LogPrint ("Closing...\n");
+	$socket->close;
+
 	exit;
 	
 }
@@ -141,7 +194,7 @@ if ($method eq 'POST'){
 my $referrer;
 if ($referrer= $ENV{'HTTP_REFERER'}){
 	# change the referrer back to how it would look...
-	$referrer =~ s/\.ip\.$ip\.proxy\.liquidweb\.services//g;
+	$referrer =~ s/\.ip\.$ip\.proxy\.liquidweb\.services//gi;
 	$req->referrer($referrer);
 }
 
@@ -171,6 +224,7 @@ print "\n";
 if ($content_type =~ m/text/){
 	$content =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
 } else {
+	$content =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
 	binmode STDOUT;
 }
 print "$content";
