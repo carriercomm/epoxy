@@ -11,6 +11,7 @@ use HTTP::Cookies;
 use URI::Escape;
 use IO::Socket::INET;
 use IO::Select;
+use bigint;
 
 my $http_host = $ENV{HTTP_HOST};
 
@@ -41,6 +42,12 @@ sub LogPrint{
 	close FILE;
 }
 
+sub Lprint{
+	my $to_print=shift;
+	LogPrint $to_print;
+	print $to_print;
+}
+
 
 if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 	$|=1;
@@ -55,81 +62,97 @@ if ($input_content_type && ($input_content_type =~ m/^multipart/)){
 	$socket_select->add($socket);
 	my $stdin_fh = *STDIN;
 
-	$socket->send("$ENV{REQUEST_METHOD} $ENV{REQUEST_URI} $ENV{SERVER_PROTOCOL}\n");
-	$socket->send("Accept: $ENV{HTTP_ACCEPT}\n");
-	$socket->send("Accept-Encoding: $ENV{HTTP_ACCEPT_ENCODING}\n");
-	$socket->send("Accept-Language: $ENV{HTTP_ACCEPT_LANGUAGE}\n");
+	$socket->send("$ENV{REQUEST_METHOD} $ENV{REQUEST_URI} $ENV{SERVER_PROTOCOL}\r\n");
+	$socket->send("Accept: $ENV{HTTP_ACCEPT}\r\n");
+	$socket->send("Accept-Encoding: $ENV{HTTP_ACCEPT_ENCODING}\r\n");
+	$socket->send("Accept-Language: $ENV{HTTP_ACCEPT_LANGUAGE}\r\n");
 	if ($ENV{HTTP_CACHE_CONTROL}) {
-		$socket->send("Cache-Control: $ENV{HTTP_CACHE_CONTROL}\n");
+		$socket->send("Cache-Control: $ENV{HTTP_CACHE_CONTROL}\r\n");
 
 	}
-	$socket->send("Referer: $ENV{HTTP_REFERER}\n");
-	$socket->send("Content-type: $ENV{CONTENT_TYPE}\n");
-	my $content_length = $ENV{CONTENT_LENGTH};
-	$socket->send("Content-Length: $ENV{CONTENT_LENGTH}\n");
-	$socket->send("Connection: $ENV{HTTP_CONNECTION}\n");
-	$socket->send("User-Agent: LW-Proxy/1.0\n");
+	$socket->send("Referer: $ENV{HTTP_REFERER}\r\n");
+	$socket->send("Content-type: $ENV{CONTENT_TYPE}\r\n");
+	$socket->send("Connection: $ENV{HTTP_CONNECTION}\r\n");
+	$socket->send("User-Agent: LW-Proxy/1.0\r\n");
 	if ($ENV{HTTP_COOKIE}) {
-		$socket->send("Cookie: $ENV{HTTP_COOKIE}\n");
+		$socket->send("Cookie: $ENV{HTTP_COOKIE}\r\n");
 	}
-	$socket->send ("Host: $hostname\n\n");
-	$content_length = $ENV{CONTENT_LENGTH};
+	my $content_length = $ENV{CONTENT_LENGTH};
+
+
+
+	my $send_data;
 
 	while (my $amount = read(STDIN,my $data,$content_length)){
 		$data =~ s/\.ip\.$ip\.proxy\.liquidweb\.services//gi;
-		$socket->send($data);
-		LogPrint "$amount $content_length\n";
+		$send_data .= $data;
+		# $socket->send($data);
 	}
+	my $new_content_length = length($send_data);
+	$socket->send("Content-Length: $new_content_length\r\n");
+	$socket->send ("Host: $hostname\r\n\r\n");
+	$socket->send($send_data);
 
 	
 	my $http_response = <$socket>;
-	while (my $data = <$socket>  && $socket_select->can_read(1)){
-		LogPrint ("here1 $data\n");
+	$content_length=0;
+	my $transfer_encoding;
+	
+	
+	# reading in response headers.
+	while (defined(my $data = <$socket>)  && ($socket_select->can_read(1))){
+		last if $data eq "\r\n";
+		# todo - handle chunked encoding and content-lenght
+		next if $data =~ m/keep-alive:/i;		
 
-		$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
-		#$data =~ s/connection: keep-alive/connection: close/gi;
-
-		binmode STDOUT;
-		print $data;
-	}
-
-
-	LogPrint ("here\n");
-	my $select = IO::Select->new();
-	$select->add(\*STDIN);
-	$select->add($socket);
-
-	# does anyone else have anything to say???
-	while (my @readable = $select->can_read(1)){
-		foreach my $read_fh (@readable) {
-				
-				
-			if ($read_fh == $socket) {
-				while (my $data = <$socket>){
-					LogPrint ("Socket\n");
-					$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
-		
-					binmode STDOUT;
-					print $data;
-				}
-			} else {
-				LogPrint ("STDIN\n");
-				$content_length = $ENV{CONTENT_LENGTH};
-
-				while (my $amount = read(STDIN,my $data,$content_length)){
-					$data =~ s/\.ip\.$ip\.proxy\.liquidweb\.services//gi;
-					$socket->send($data);
-					LogPrint "$amount $content_length\n";
-				}
-
-			}
-			
+		if ($data =~ m/Connection: Keep-Alive/i) {
+			Lprint "Connection: close\r\n";
+		}
+		elsif ($data =~ m/content-length: (.*)/i) {
+			$content_length = $1;
+		}
+		elsif ($data =~ m/transfer-encoding: (.*)/gi) {
+			$transfer_encoding = $1;
+		} else {
+			$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+			#$data =~ s/connection: keep-alive/connection: close/gi;
+			Lprint $data;
 		}
 	}
+	
+	if ($content_length) {
+		my $data;
+		$socket->read($data,$content_length);
+		$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+		$content_length = length($data);
+		Lprint "Content-length: $content_length\r\n\r\n";
 
-	LogPrint ("Closing...\n");
-	$socket->close;
+		Lprint $data;
+		
+	}
+	if ($transfer_encoding =~ m/chunked/i) {
+		Lprint "Transfer-Encoding: chunked\r\n\r\n";
+		while (my $length = <$socket>) {
+			#last unless hex($length);
+			my $data;
+			if ($length eq "\r\n") {
+				Lprint $length;
+			} else {
+			
+				my $read = $socket->read($data,hex($length));
+				$data =~ s/$hostname/$hostname\.ip\.$ip\.proxy\.liquidweb\.services/gi;
+				my $new_length = length($data);
+				$length = sprintf("%x",$new_length);
 
+				Lprint "$length\r\n";
+				Lprint $data;
+				#Lprint "\r\n";
+			}
+		}
+		#print "0\r\n";
+	}
+	
+	#sleep 5;
 	exit;
 	
 }
