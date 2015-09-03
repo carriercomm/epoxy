@@ -104,7 +104,14 @@ use bigint;
 
 my $http_host = $ENV{HTTP_HOST};
 
-$http_host =~ m/(.*)\.ip\.(.*)\.proxy\.liquidweb\.services/;
+# this is made up of two basic sections.  First is:
+# ((?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?)*\.?)
+# This becomes $1 and will match a valid hostname
+#
+# the second is ((?:[0-9]{1,3}\.){3}[0-9]{1,3})
+# this becomes $2 and matches a valid IPv4 address
+
+$http_host =~ m/((?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|-){0,61}[0-9A-Za-z])?)*\.?)\.ip\.((?:[0-9]{1,3}\.){3}[0-9]{1,3})\.proxy\.liquidweb\.services/;
 my $hostname = $1;
 my $ip = $2;
 my $url = $ENV{REQUEST_URI};
